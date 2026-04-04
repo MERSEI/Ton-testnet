@@ -1,3 +1,5 @@
+// ⚠️ Polyfills MUST be first — @ton/ton reads Buffer at module init time
+import './polyfills'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
