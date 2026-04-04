@@ -15,23 +15,23 @@ function AppInner() {
 
   return (
     <>
-      <main style={{ minHeight: '100vh', paddingBottom: '4rem' }}>
-        {tab === 'wallet' && <Wallet onNavigate={setTab} />}
-        {tab === 'send' && <Send />}
+      <main style={{ minHeight: '100svh' }}>
+        {tab === 'wallet'  && <Wallet  onNavigate={setTab} />}
+        {tab === 'send'    && <Send    />}
         {tab === 'receive' && <Receive />}
       </main>
 
       <nav className="bottom-nav" aria-label="Main navigation">
-        <button className={tab === 'wallet' ? 'active' : ''} onClick={() => setTab('wallet')}>
-          <span style={{ fontSize: '1.1rem' }}>⬡</span>
+        <button className={tab === 'wallet'  ? 'active' : ''} onClick={() => setTab('wallet')}>
+          <span className="nav-icon">◈</span>
           Wallet
         </button>
         <button className={tab === 'receive' ? 'active' : ''} onClick={() => setTab('receive')}>
-          <span style={{ fontSize: '1.1rem' }}>↓</span>
+          <span className="nav-icon">↓</span>
           Receive
         </button>
-        <button className={tab === 'send' ? 'active' : ''} onClick={() => setTab('send')}>
-          <span style={{ fontSize: '1.1rem' }}>↑</span>
+        <button className={tab === 'send'    ? 'active' : ''} onClick={() => setTab('send')}>
+          <span className="nav-icon">↑</span>
           Send
         </button>
       </nav>
