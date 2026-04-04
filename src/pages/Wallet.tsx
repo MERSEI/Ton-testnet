@@ -22,10 +22,15 @@ export function Wallet({ onNavigate }: Props) {
 
   const [showFull, setShowFull] = useState(false)
   const [search, setSearch] = useState('')
+  const [refreshCooldown, setRefreshCooldown] = useState(false)
 
   useEffect(() => {
+    // Sequential load: balance first, then transactions 1.2 s later.
+    // TON Center free tier allows 1 req/s — firing both simultaneously
+    // causes a 429 on the second request.
     refreshBalance()
-    refreshTx()
+    const t = setTimeout(refreshTx, 1200)
+    return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -40,8 +45,13 @@ export function Wallet({ onNavigate }: Props) {
   if (!wallet) return null
 
   const handleRefresh = () => {
+    if (refreshCooldown) return
+    setRefreshCooldown(true)
     refreshBalance()
-    refreshTx()
+    // Stagger the second request to stay under 1 req/s
+    setTimeout(refreshTx, 1200)
+    // Re-enable button after 5 s
+    setTimeout(() => setRefreshCooldown(false), 5000)
   }
 
   const filteredTx: TonTransaction[] = transactions.filter(tx => {
@@ -97,7 +107,8 @@ export function Wallet({ onNavigate }: Props) {
           </div>
           <button
             onClick={handleRefresh}
-            title="Refresh"
+            disabled={refreshCooldown}
+            title={refreshCooldown ? 'Please wait…' : 'Refresh'}
             style={{
               marginLeft: 'auto',
               background: 'rgba(255,255,255,0.2)',

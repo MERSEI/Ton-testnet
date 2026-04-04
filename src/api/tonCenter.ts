@@ -53,6 +53,9 @@ async function get<T>(path: string, params: Record<string, string> = {}): Promis
   const url = new URL(`${BASE}${path}`)
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v))
   const res = await fetch(url.toString())
+  if (res.status === 429) {
+    throw new Error('Rate limited by TON Center (1 req/s on free tier). Wait a moment and try again.')
+  }
   if (!res.ok) throw new Error(`TON Center ${res.status}: ${res.statusText}`)
   const json = (await res.json()) as { ok: boolean; result: unknown; error?: string }
   if (!json.ok) throw new Error(json.error ?? 'TON Center API error')

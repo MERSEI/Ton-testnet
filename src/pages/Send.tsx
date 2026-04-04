@@ -26,9 +26,11 @@ export function Send() {
   const { nanotons, refresh: refreshBalance } = useBalance(wallet?.address ?? null)
   const { loading, txHash, error, send, reset } = useSend()
 
-  // Load balance on mount — the hook initialises with null and never auto-fetches.
+  // Load balance on mount with a 2.4 s delay so it doesn't collide with the
+  // Wallet page's balance + tx requests (TON Center free tier: 1 req/s).
   useEffect(() => {
-    refreshBalance()
+    const t = setTimeout(refreshBalance, 2400)
+    return () => clearTimeout(t)
   }, [refreshBalance])
   const { isPasted, onPaste, onManualEdit, reset: resetClipboard } = useClipboardGuard()
 
