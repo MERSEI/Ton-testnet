@@ -3,221 +3,253 @@ import { useWalletContext } from '../store/WalletContext'
 import { useBalance } from '../hooks/useBalance'
 import { useTransactions } from '../hooks/useTransactions'
 import { AddressDisplay } from '../components/AddressDisplay'
-import { TransactionItem } from '../components/TransactionItem'
 import { Spinner } from '../components/Spinner'
+import { HelpModal } from '../components/HelpModal'
 import { formatTon } from '../utils/address'
 import { seedAddressBookFromHistory } from '../utils/addressBook'
 import type { TonTransaction } from '../api/tonCenter'
 
 type Tab = 'wallet' | 'send' | 'receive'
-
-type Props = {
-  onNavigate: (tab: Tab) => void
-}
+type Props = { onNavigate: (tab: Tab) => void }
 
 export function Wallet({ onNavigate }: Props) {
   const { wallet, clearWallet } = useWalletContext()
   const { nanotons, loading: balLoading, error: balError, refresh: refreshBalance } = useBalance(wallet?.address ?? null)
   const { transactions, loading: txLoading, error: txError, refresh: refreshTx } = useTransactions(wallet?.address ?? null)
 
-  const [showFull, setShowFull] = useState(false)
-  const [search, setSearch] = useState('')
-  const [refreshCooldown, setRefreshCooldown] = useState(false)
+  const [showFull, setShowFull]         = useState(false)
+  const [search, setSearch]             = useState('')
+  const [refreshCooldown, setCooldown]  = useState(false)
+  const [showHelp, setShowHelp]         = useState(false)
 
   useEffect(() => {
-    // Sequential load: balance first, then transactions 1.2 s later.
-    // TON Center free tier allows 1 req/s — firing both simultaneously
-    // causes a 429 on the second request.
     refreshBalance()
     const t = setTimeout(refreshTx, 1200)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Seed address book from on-chain history after transactions load.
-  // This ensures imported wallets have context for past recipients.
   useEffect(() => {
-    if (transactions.length > 0) {
-      seedAddressBookFromHistory(transactions)
-    }
+    if (transactions.length > 0) seedAddressBookFromHistory(transactions)
   }, [transactions])
 
   if (!wallet) return null
 
   const handleRefresh = () => {
     if (refreshCooldown) return
-    setRefreshCooldown(true)
+    setCooldown(true)
     refreshBalance()
-    // Stagger the second request to stay under 1 req/s
     setTimeout(refreshTx, 1200)
-    // Re-enable button after 5 s
-    setTimeout(() => setRefreshCooldown(false), 5000)
+    setTimeout(() => setCooldown(false), 5000)
   }
 
-  const filteredTx: TonTransaction[] = transactions.filter(tx => {
+  const filtered: TonTransaction[] = transactions.filter(tx => {
     if (!search) return true
     const q = search.toLowerCase()
-    return (
-      tx.address.toLowerCase().includes(q) ||
-      formatTon(tx.amount).includes(q)
-    )
+    return tx.address.toLowerCase().includes(q) || formatTon(tx.amount).includes(q)
   })
 
   return (
-    <div className="page" style={{ maxWidth: '480px', margin: '0 auto', paddingBottom: '5rem' }}>
-      {/* Header */}
-      <div
-        style={{
-          background: 'var(--color-primary, #0088cc)',
-          color: '#fff',
-          padding: '1.5rem 1.5rem 2rem',
-          borderRadius: '0 0 20px 20px',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-          <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>TON Testnet</span>
-          <button
-            onClick={clearWallet}
-            style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '0.8rem', opacity: 0.8 }}
-          >
-            Disconnect
-          </button>
-        </div>
-
-        {/* Address */}
+    <>
+      <div className="page-content">
+        {/* ── Balance card ───────────────────────────────────── */}
         <div
-          onClick={() => setShowFull(v => !v)}
-          style={{ cursor: 'pointer', marginBottom: '1rem' }}
-          title="Click to toggle full address"
+          className="tg-section"
+          style={{
+            background: 'linear-gradient(145deg, var(--tg-blue) 0%, #1a8bc8 100%)',
+            color: '#fff',
+            padding: '1.5rem',
+          }}
         >
-          <div style={{ fontSize: '0.75rem', opacity: 0.8, marginBottom: '0.25rem' }}>Your address</div>
-          {/* SECURITY MECHANISM A — highlighted address in header */}
-          <span style={{ fontFamily: 'monospace', fontSize: showFull ? '0.7rem' : '0.9rem' }}>
-            <AddressDisplay address={wallet.address} full={showFull} />
-          </span>
-        </div>
-
-        {/* Balance */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div>
-            <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Balance</div>
-            <div style={{ fontSize: '1.8rem', fontWeight: 700 }}>
-              {balLoading ? <Spinner size={20} /> : nanotons ? `${formatTon(nanotons)} TON` : '— TON'}
+          {/* Header row */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+            <span style={{ fontSize: '0.8rem', opacity: 0.85, fontWeight: 600, letterSpacing: '0.05em' }}>
+              TON TESTNET
+            </span>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                onClick={() => setShowHelp(true)}
+                title="Help"
+                style={iconBtnStyle}
+              >?</button>
+              <button
+                onClick={clearWallet}
+                title="Disconnect wallet"
+                style={iconBtnStyle}
+              >⏏</button>
             </div>
           </div>
-          <button
-            onClick={handleRefresh}
-            disabled={refreshCooldown}
-            title={refreshCooldown ? 'Please wait…' : 'Refresh'}
-            style={{
-              marginLeft: 'auto',
-              background: 'rgba(255,255,255,0.2)',
-              border: 'none',
-              borderRadius: '50%',
-              width: '36px',
-              height: '36px',
-              cursor: 'pointer',
-              fontSize: '1rem',
-              color: '#fff',
-            }}
+
+          {/* Address */}
+          <div
+            onClick={() => setShowFull(v => !v)}
+            style={{ cursor: 'pointer', marginBottom: '1.25rem' }}
+            title="Tap to toggle full address"
           >
-            ↻
-          </button>
+            <div style={{ fontSize: '0.72rem', opacity: 0.75, marginBottom: '0.25rem' }}>Your address</div>
+            <span style={{
+              fontFamily: 'monospace',
+              fontSize: showFull ? '0.68rem' : '0.88rem',
+              lineHeight: 1.4,
+              opacity: 0.95,
+            }}>
+              {/* Address highlight CSS variables won't work on blue bg — override inline */}
+              <AddressDisplay address={wallet.address} full={showFull} />
+            </span>
+          </div>
+
+          {/* Balance row */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: '0.72rem', opacity: 0.75, marginBottom: '0.2rem' }}>Balance</div>
+              <div className="balance-amount" style={{ color: '#fff' }}>
+                {balLoading
+                  ? <Spinner size={24} />
+                  : nanotons
+                    ? <>{formatTon(nanotons)} <span style={{ fontSize: '1.3rem', opacity: 0.85 }}>TON</span></>
+                    : <span style={{ opacity: 0.6 }}>— TON</span>
+                }
+              </div>
+            </div>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshCooldown}
+              title={refreshCooldown ? 'Please wait…' : 'Refresh'}
+              style={{
+                background: 'rgba(255,255,255,0.18)',
+                border: 'none',
+                borderRadius: '50%',
+                width: 38, height: 38,
+                cursor: refreshCooldown ? 'default' : 'pointer',
+                fontSize: '1.1rem',
+                color: '#fff',
+                opacity: refreshCooldown ? 0.45 : 1,
+                transition: 'opacity 0.2s',
+              }}
+            >↻</button>
+          </div>
+
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1.5rem', justifyContent: 'center' }}>
+            <button className="action-btn" onClick={() => onNavigate('receive')}>
+              <div className="action-btn__icon" style={{ background: 'rgba(255,255,255,0.2)' }}>
+                <span style={{ color: '#fff' }}>↓</span>
+              </div>
+              <span style={{ color: 'rgba(255,255,255,0.9)' }}>Receive</span>
+            </button>
+            <button className="action-btn" onClick={() => onNavigate('send')}>
+              <div className="action-btn__icon" style={{ background: 'rgba(255,255,255,0.2)' }}>
+                <span style={{ color: '#fff' }}>↑</span>
+              </div>
+              <span style={{ color: 'rgba(255,255,255,0.9)' }}>Send</span>
+            </button>
+          </div>
         </div>
 
-        {/* Action buttons */}
-        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.25rem' }}>
-          <button
-            className="btn"
-            onClick={() => onNavigate('receive')}
-            style={actionBtnStyle}
-          >
-            ↓ Receive
-          </button>
-          <button
-            className="btn"
-            onClick={() => onNavigate('send')}
-            style={actionBtnStyle}
-          >
-            ↑ Send
-          </button>
+        {/* ── API errors ─────────────────────────────────────── */}
+        {(balError || txError) && (
+          <div role="alert" className="tg-section" style={{
+            padding: '0.75rem 1rem',
+            borderLeft: '4px solid var(--red)',
+            fontSize: '0.82rem',
+            color: 'var(--red)',
+          }}>
+            {balError && <div>Balance: {balError}</div>}
+            {txError  && <div>Transactions: {txError}</div>}
+            <div style={{ color: 'var(--text-muted)', marginTop: '0.2rem', fontSize: '0.78rem' }}>
+              Your funds are safe. Try refreshing in a moment.
+            </div>
+          </div>
+        )}
+
+        {/* ── Transaction history ─────────────────────────────── */}
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 0.25rem 0.4rem' }}>
+            <span className="label-text">Transactions</span>
+            {txLoading && <Spinner size={14} />}
+          </div>
+
+          {/* Search */}
+          <div style={{ marginBottom: '0.6rem' }}>
+            <input
+              className="tg-input"
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search by address or amount…"
+            />
+          </div>
+
+          <div className="tg-section">
+            {filtered.length === 0 && !txLoading ? (
+              <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
+                {search
+                  ? 'No transactions match your search.'
+                  : txError
+                  ? 'Could not load transactions. Check your connection.'
+                  : 'No transactions yet.'}
+              </div>
+            ) : (
+              filtered.map(tx => <TxRow key={tx.hash + tx.lt} tx={tx} />)
+            )}
+          </div>
         </div>
       </div>
 
-      {/* API error banners — shown below the header so they're always visible */}
-      {(balError || txError) && (
-        <div
-          role="alert"
-          style={{
-            background: '#fef2f2',
-            border: '1px solid #f87171',
-            borderLeft: '4px solid #dc2626',
-            borderRadius: '0 0 8px 8px',
-            padding: '0.6rem 1rem',
-            fontSize: '0.82rem',
-            color: '#991b1b',
-          }}
-        >
-          {balError && <div>⚠️ Balance: {balError}</div>}
-          {txError && <div>⚠️ Transactions: {txError}</div>}
-          <div style={{ marginTop: '0.25rem', opacity: 0.8 }}>
-            This may be a network or API issue. Your funds are unaffected. Try refreshing.
+      <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
+    </>
+  )
+}
+
+/* ── Transaction row ──────────────────────────────────────────────────── */
+function TxRow({ tx }: { tx: TonTransaction }) {
+  const isIn  = tx.type === 'in'
+  const date  = new Date(tx.timestamp * 1000)
+  const label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+             + ' · '
+             + date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+
+  return (
+    <div className="tg-cell">
+      <div className={`tx-icon ${isIn ? 'in' : 'out'}`}>
+        {isIn ? '↓' : '↑'}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>
+          {isIn ? 'Received' : 'Sent'}
+        </div>
+        {tx.address && (
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {isIn ? 'From: ' : 'To: '}
+            <span style={{ fontFamily: 'monospace' }}>
+              {tx.address.slice(0, 8)}…{tx.address.slice(-6)}
+            </span>
           </div>
-        </div>
-      )}
-
-      {/* Transaction history */}
-      <div style={{ padding: '1.25rem 1rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-          <h3 style={{ margin: 0, fontSize: '1rem' }}>History</h3>
-          {txLoading && <Spinner size={16} />}
-        </div>
-
-        {/* Search */}
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search by address or amount…"
-          style={{
-            width: '100%',
-            padding: '0.5rem 0.75rem',
-            border: '1px solid var(--color-border, #ddd)',
-            borderRadius: '8px',
-            fontSize: '0.85rem',
-            marginBottom: '0.75rem',
-            boxSizing: 'border-box',
-          }}
-        />
-
-        {filteredTx.length === 0 && !txLoading && (
-          <p style={{ color: 'var(--color-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '2rem 0' }}>
-            {search
-              ? 'No transactions match your search.'
-              : txError
-              ? 'Could not load transactions. Check your connection and refresh.'
-              : 'No transactions yet.'}
-          </p>
         )}
-
-        <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--color-border, #eee)' }}>
-          {filteredTx.map(tx => (
-            <TransactionItem key={tx.hash + tx.lt} tx={tx} />
-          ))}
+        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>{label}</div>
+      </div>
+      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        <div style={{ fontWeight: 700, color: isIn ? 'var(--green)' : 'var(--red)', fontSize: '0.92rem' }}>
+          {isIn ? '+' : '−'}{formatTon(tx.amount)} TON
+        </div>
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+          fee {formatTon(tx.fee)}
         </div>
       </div>
     </div>
   )
 }
 
-const actionBtnStyle: React.CSSProperties = {
-  flex: 1,
-  background: 'rgba(255,255,255,0.15)',
-  color: '#fff',
-  border: '1px solid rgba(255,255,255,0.3)',
-  borderRadius: '8px',
-  padding: '0.5rem',
+const iconBtnStyle: React.CSSProperties = {
+  background: 'rgba(255,255,255,0.18)',
+  border: 'none',
+  borderRadius: '50%',
+  width: 30, height: 30,
   cursor: 'pointer',
-  fontSize: '0.9rem',
-  fontWeight: 600,
+  fontSize: '0.85rem',
+  color: '#fff',
+  fontWeight: 700,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
 }
