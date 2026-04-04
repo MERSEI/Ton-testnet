@@ -5,8 +5,24 @@
  *   - bounceable   (EQ…)  – default for smart contracts
  *   - non-bounceable (UQ…) – recommended for plain wallets
  *
- * We accept both forms and normalise them for display.
+ * We accept both forms and normalise them for display/comparison.
  */
+
+import { Address } from '@ton/ton'
+
+/**
+ * Normalise any valid TON address to canonical non-bounceable user-friendly form.
+ * This ensures EQ…, UQ…, and raw 0:hex… all compare as equal when referring to
+ * the same account — which matters for address-book lookups and similarity checks.
+ * Falls back to trimmed original on parse failure.
+ */
+export function normalizeAddress(address: string): string {
+  try {
+    return Address.parse(address.trim()).toString({ urlSafe: true, bounceable: false })
+  } catch {
+    return address.trim()
+  }
+}
 
 /** Validate a TON address (raw or user-friendly) */
 export function isValidTonAddress(address: string): boolean {

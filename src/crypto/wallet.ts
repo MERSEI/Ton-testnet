@@ -18,10 +18,12 @@ import {
   type Cell,
 } from '@ton/ton'
 
-export type WalletKeys = {
-  publicKey: Buffer
-  secretKey: Buffer
-}
+/**
+ * Derive WalletKeys type from @ton/crypto's KeyPair — avoids declaring 'Buffer'
+ * as a global (not available in browser without polyfill).  The Buffer type is
+ * resolved transitively through @ton/crypto's own @types/node dependency.
+ */
+export type WalletKeys = Awaited<ReturnType<typeof mnemonicToPrivateKey>>
 
 export type WalletInfo = {
   address: string    // user-friendly non-bounceable (UQ…)

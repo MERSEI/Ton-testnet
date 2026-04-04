@@ -29,8 +29,10 @@ vi.mock('../../hooks/useSend', () => ({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// 48-char valid TON address
+// 48-char addresses (not valid TON CRC, but pass regex validation in isValidTonAddress)
 const VALID_ADDR = 'UQBvWWFP2pnpMNaHO6YeW7VKz-D_0uj9E3k9d2QT3k9dABCd'
+// Shares positions 2-9 ('BvWWFP2p') with VALID_ADDR — simulates prefix-swap attack
+const SIMILAR_ADDR = 'UQBvWWFP2pZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ'
 
 // Minimal session so WalletContext has a wallet
 function seedSession() {
@@ -137,6 +139,14 @@ describe('Send page — SECURITY MECHANISM C (new address warning)', () => {
     expect(await screen.findByText(/never sent to this address before/i)).toBeInTheDocument()
   })
 
+  it('shows similar-address warning inline when prefix-swap detected', async () => {
+    addressBook.addKnownAddress(VALID_ADDR)
+    renderSend()
+    fireEvent.change(screen.getByPlaceholderText('UQ…'), { target: { value: SIMILAR_ADDR } })
+    const warnings = await screen.findAllByText(/suspicious address match/i)
+    expect(warnings.length).toBeGreaterThanOrEqual(1)
+  })
+
   it('does NOT show hint for known address', async () => {
     addressBook.addKnownAddress(VALID_ADDR)
     renderSend()
@@ -163,6 +173,19 @@ describe('Send page — confirmation modal', () => {
     fireEvent.click(screen.getByText('Review & Send'))
     await screen.findByText('Confirm Transaction')
     expect(screen.getByText(/first time sending to this address/i)).toBeInTheDocument()
+  })
+
+  it('shows similar-address warning in modal when prefix-swap detected', async () => {
+    // VALID_ADDR is known; SIMILAR_ADDR shares prefix → should trigger orange warning.
+    // The warning appears BOTH inline (form) and in the modal — use getAllByText.
+    addressBook.addKnownAddress(VALID_ADDR)
+    renderSend()
+    fireEvent.change(screen.getByPlaceholderText('UQ…'), { target: { value: SIMILAR_ADDR } })
+    fireEvent.change(screen.getByPlaceholderText('0.5'), { target: { value: '1' } })
+    fireEvent.click(screen.getByText('Review & Send'))
+    await screen.findByText('Confirm Transaction')
+    const warnings = screen.getAllByText(/suspicious address match/i)
+    expect(warnings.length).toBeGreaterThanOrEqual(1)
   })
 
   it('cancel closes the modal', async () => {

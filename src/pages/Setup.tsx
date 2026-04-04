@@ -3,8 +3,8 @@
  * User can either generate a new wallet or import one via mnemonic.
  */
 
-import React, { useState } from 'react'
-import { generateWallet, deriveWallet } from '../crypto/wallet'
+import React, { useState, useRef } from 'react'
+import { generateWallet, deriveWallet, type WalletInfo } from '../crypto/wallet'
 import { useWalletContext } from '../store/WalletContext'
 import { Spinner } from '../components/Spinner'
 
@@ -19,17 +19,19 @@ export function Setup() {
   const [error, setError] = useState('')
   const [confirmed, setConfirmed] = useState(false)
 
+  // Hold the generated wallet until the user confirms they've saved the mnemonic.
+  // Using a ref (not state) avoids re-renders and avoids any window / global hacks.
+  const pendingWallet = useRef<WalletInfo | null>(null)
+
   // ── Create ──────────────────────────────────────────────────────────────────
   const handleCreate = async () => {
     setLoading(true)
     setError('')
     try {
       const wallet = await generateWallet()
+      pendingWallet.current = wallet
       setMnemonic(wallet.mnemonic)
       setView('create')
-      // Don't store yet — user must confirm they saved the mnemonic
-      // Temporarily hold wallet in component state
-      ;(window as Record<string, unknown>)['__pendingWallet'] = wallet
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -38,10 +40,9 @@ export function Setup() {
   }
 
   const handleConfirmCreate = () => {
-    const wallet = (window as Record<string, unknown>)['__pendingWallet']
-    if (wallet) {
-      setWallet(wallet as Parameters<typeof setWallet>[0])
-      delete (window as Record<string, unknown>)['__pendingWallet']
+    if (pendingWallet.current) {
+      setWallet(pendingWallet.current)
+      pendingWallet.current = null
     }
   }
 
