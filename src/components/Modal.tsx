@@ -8,12 +8,9 @@ type Props = {
 }
 
 export function Modal({ open, onClose, title, children }: Props) {
-  // Close on Escape key
   useEffect(() => {
     if (!open) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && onClose) onClose()
-    }
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape' && onClose) onClose() }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [open, onClose])
@@ -22,29 +19,33 @@ export function Modal({ open, onClose, title, children }: Props) {
 
   return (
     <div
-      className="modal-overlay"
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 1000,
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        zIndex: 1000, padding: '0 0 env(safe-area-inset-bottom, 0)',
+        animation: 'fadeIn 0.15s ease',
       }}
       onClick={e => { if (e.target === e.currentTarget && onClose) onClose() }}
     >
       <div
-        className="modal-box"
-        style={{
-          background: 'var(--color-surface, #fff)',
-          borderRadius: '12px',
-          padding: '1.5rem',
-          minWidth: '320px',
-          maxWidth: '90vw',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-        }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
+        style={{
+          background: 'var(--surface)',
+          borderRadius: '16px 16px 0 0',
+          padding: '1.25rem 1.25rem 1.5rem',
+          width: '100%',
+          maxWidth: '480px',
+          maxHeight: '92svh',
+          overflowY: 'auto',
+          boxShadow: '0 -4px 32px rgba(0,0,0,0.15)',
+          animation: 'scaleIn 0.2s ease',
+        }}
       >
-        <h2 id="modal-title" style={{ margin: '0 0 1rem', fontSize: '1.1rem' }}>{title}</h2>
+        {/* Drag handle */}
+        <div style={{ width: 36, height: 4, background: 'var(--divider)', borderRadius: 4, margin: '0 auto 1rem' }} />
+        <h2 id="modal-title" style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>{title}</h2>
         {children}
       </div>
     </div>

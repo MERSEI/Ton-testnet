@@ -64,12 +64,12 @@ beforeEach(() => {
 describe('Send page — basic rendering', () => {
   it('renders recipient address input', () => {
     renderSend()
-    expect(screen.getByPlaceholderText('UQ…')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('UQ… or EQ…')).toBeInTheDocument()
   })
 
   it('renders amount input', () => {
     renderSend()
-    expect(screen.getByPlaceholderText('0.5')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('0.0')).toBeInTheDocument()
   })
 
   it('renders submit button', () => {
@@ -87,16 +87,16 @@ describe('Send page — validation errors', () => {
 
   it('shows error for invalid address', async () => {
     renderSend()
-    fireEvent.change(screen.getByPlaceholderText('UQ…'), { target: { value: 'invalid-addr' } })
-    fireEvent.change(screen.getByPlaceholderText('0.5'), { target: { value: '1' } })
+    fireEvent.change(screen.getByPlaceholderText('UQ… or EQ…'), { target: { value: 'invalid-addr' } })
+    fireEvent.change(screen.getByPlaceholderText('0.0'), { target: { value: '1' } })
     fireEvent.click(screen.getByText('Review & Send'))
     expect(await screen.findByText(/invalid ton address/i)).toBeInTheDocument()
   })
 
   it('shows error for zero amount', async () => {
     renderSend()
-    const addrInput = screen.getByPlaceholderText('UQ…')
-    const amountInput = screen.getByPlaceholderText('0.5')
+    const addrInput = screen.getByPlaceholderText('UQ… or EQ…')
+    const amountInput = screen.getByPlaceholderText('0.0')
     // Use fireEvent to set values directly to avoid userEvent interaction issues with number inputs
     fireEvent.change(addrInput, { target: { value: VALID_ADDR } })
     fireEvent.change(amountInput, { target: { value: '0' } })
@@ -106,8 +106,8 @@ describe('Send page — validation errors', () => {
 
   it('shows error when amount exceeds balance', async () => {
     renderSend()
-    fireEvent.change(screen.getByPlaceholderText('UQ…'), { target: { value: VALID_ADDR } })
-    fireEvent.change(screen.getByPlaceholderText('0.5'), { target: { value: '999999' } })
+    fireEvent.change(screen.getByPlaceholderText('UQ… or EQ…'), { target: { value: VALID_ADDR } })
+    fireEvent.change(screen.getByPlaceholderText('0.0'), { target: { value: '999999' } })
     fireEvent.click(screen.getByText('Review & Send'))
     expect(await screen.findByText(/insufficient balance/i)).toBeInTheDocument()
   })
@@ -116,14 +116,14 @@ describe('Send page — validation errors', () => {
 describe('Send page — SECURITY MECHANISM B (clipboard warning)', () => {
   it('shows clipboard warning after paste event', async () => {
     renderSend()
-    const input = screen.getByPlaceholderText('UQ…')
+    const input = screen.getByPlaceholderText('UQ… or EQ…')
     fireEvent.paste(input)
     expect(await screen.findByText(/pasted from clipboard/i)).toBeInTheDocument()
   })
 
   it('shows warning banner with non-dismissable text', async () => {
     renderSend()
-    const input = screen.getByPlaceholderText('UQ…')
+    const input = screen.getByPlaceholderText('UQ… or EQ…')
     fireEvent.paste(input)
     // No close button
     expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument()
@@ -135,14 +135,14 @@ describe('Send page — SECURITY MECHANISM B (clipboard warning)', () => {
 describe('Send page — SECURITY MECHANISM C (new address warning)', () => {
   it('shows new-address hint for unknown address', async () => {
     renderSend()
-    fireEvent.change(screen.getByPlaceholderText('UQ…'), { target: { value: VALID_ADDR } })
+    fireEvent.change(screen.getByPlaceholderText('UQ… or EQ…'), { target: { value: VALID_ADDR } })
     expect(await screen.findByText(/never sent to this address before/i)).toBeInTheDocument()
   })
 
   it('shows similar-address warning inline when prefix-swap detected', async () => {
     addressBook.addKnownAddress(VALID_ADDR)
     renderSend()
-    fireEvent.change(screen.getByPlaceholderText('UQ…'), { target: { value: SIMILAR_ADDR } })
+    fireEvent.change(screen.getByPlaceholderText('UQ… or EQ…'), { target: { value: SIMILAR_ADDR } })
     const warnings = await screen.findAllByText(/suspicious address match/i)
     expect(warnings.length).toBeGreaterThanOrEqual(1)
   })
@@ -150,7 +150,7 @@ describe('Send page — SECURITY MECHANISM C (new address warning)', () => {
   it('does NOT show hint for known address', async () => {
     addressBook.addKnownAddress(VALID_ADDR)
     renderSend()
-    fireEvent.change(screen.getByPlaceholderText('UQ…'), { target: { value: VALID_ADDR } })
+    fireEvent.change(screen.getByPlaceholderText('UQ… or EQ…'), { target: { value: VALID_ADDR } })
     await waitFor(() => {
       expect(screen.queryByText(/never sent to this address before/i)).not.toBeInTheDocument()
     })
@@ -160,16 +160,16 @@ describe('Send page — SECURITY MECHANISM C (new address warning)', () => {
 describe('Send page — confirmation modal', () => {
   it('opens confirmation modal with valid input', async () => {
     renderSend()
-    fireEvent.change(screen.getByPlaceholderText('UQ…'), { target: { value: VALID_ADDR } })
-    fireEvent.change(screen.getByPlaceholderText('0.5'), { target: { value: '1' } })
+    fireEvent.change(screen.getByPlaceholderText('UQ… or EQ…'), { target: { value: VALID_ADDR } })
+    fireEvent.change(screen.getByPlaceholderText('0.0'), { target: { value: '1' } })
     fireEvent.click(screen.getByText('Review & Send'))
     expect(await screen.findByText('Confirm Transaction')).toBeInTheDocument()
   })
 
   it('shows new-address warning in confirmation modal for unknown address', async () => {
     renderSend()
-    fireEvent.change(screen.getByPlaceholderText('UQ…'), { target: { value: VALID_ADDR } })
-    fireEvent.change(screen.getByPlaceholderText('0.5'), { target: { value: '1' } })
+    fireEvent.change(screen.getByPlaceholderText('UQ… or EQ…'), { target: { value: VALID_ADDR } })
+    fireEvent.change(screen.getByPlaceholderText('0.0'), { target: { value: '1' } })
     fireEvent.click(screen.getByText('Review & Send'))
     await screen.findByText('Confirm Transaction')
     expect(screen.getByText(/first time sending to this address/i)).toBeInTheDocument()
@@ -180,8 +180,8 @@ describe('Send page — confirmation modal', () => {
     // The warning appears BOTH inline (form) and in the modal — use getAllByText.
     addressBook.addKnownAddress(VALID_ADDR)
     renderSend()
-    fireEvent.change(screen.getByPlaceholderText('UQ…'), { target: { value: SIMILAR_ADDR } })
-    fireEvent.change(screen.getByPlaceholderText('0.5'), { target: { value: '1' } })
+    fireEvent.change(screen.getByPlaceholderText('UQ… or EQ…'), { target: { value: SIMILAR_ADDR } })
+    fireEvent.change(screen.getByPlaceholderText('0.0'), { target: { value: '1' } })
     fireEvent.click(screen.getByText('Review & Send'))
     await screen.findByText('Confirm Transaction')
     const warnings = screen.getAllByText(/suspicious address match/i)
@@ -190,8 +190,8 @@ describe('Send page — confirmation modal', () => {
 
   it('cancel closes the modal', async () => {
     renderSend()
-    fireEvent.change(screen.getByPlaceholderText('UQ…'), { target: { value: VALID_ADDR } })
-    fireEvent.change(screen.getByPlaceholderText('0.5'), { target: { value: '1' } })
+    fireEvent.change(screen.getByPlaceholderText('UQ… or EQ…'), { target: { value: VALID_ADDR } })
+    fireEvent.change(screen.getByPlaceholderText('0.0'), { target: { value: '1' } })
     fireEvent.click(screen.getByText('Review & Send'))
     await screen.findByText('Confirm Transaction')
     fireEvent.click(screen.getByText('Cancel'))
