@@ -52,10 +52,12 @@ function restoreSession(): WalletInfo | null {
     const raw = sessionStorage.getItem(SESSION_KEY)
     if (!raw) return null
     const data = JSON.parse(raw) as SessionData
-    const keys: WalletKeys = {
-      publicKey: Buffer.from(data.publicKey),
-      secretKey: Buffer.from(data.secretKey),
-    }
+    // Reconstruct byte arrays from serialized number[].
+    // Buffer extends Uint8Array — casting is safe for all crypto operations at runtime.
+    const keys = {
+      publicKey: new Uint8Array(data.publicKey),
+      secretKey: new Uint8Array(data.secretKey),
+    } as unknown as WalletKeys
     return { address: data.address, mnemonic: data.mnemonic, keys }
   } catch {
     return null

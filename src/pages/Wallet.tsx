@@ -6,6 +6,7 @@ import { AddressDisplay } from '../components/AddressDisplay'
 import { TransactionItem } from '../components/TransactionItem'
 import { Spinner } from '../components/Spinner'
 import { formatTon } from '../utils/address'
+import { seedAddressBookFromHistory } from '../utils/addressBook'
 import type { TonTransaction } from '../api/tonCenter'
 
 type Tab = 'wallet' | 'send' | 'receive'
@@ -16,8 +17,8 @@ type Props = {
 
 export function Wallet({ onNavigate }: Props) {
   const { wallet, clearWallet } = useWalletContext()
-  const { nanotons, loading: balLoading, refresh: refreshBalance } = useBalance(wallet?.address ?? null)
-  const { transactions, loading: txLoading, refresh: refreshTx } = useTransactions(wallet?.address ?? null)
+  const { nanotons, loading: balLoading, error: balError, refresh: refreshBalance } = useBalance(wallet?.address ?? null)
+  const { transactions, loading: txLoading, error: txError, refresh: refreshTx } = useTransactions(wallet?.address ?? null)
 
   const [showFull, setShowFull] = useState(false)
   const [search, setSearch] = useState('')
@@ -27,6 +28,14 @@ export function Wallet({ onNavigate }: Props) {
     refreshTx()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Seed address book from on-chain history after transactions load.
+  // This ensures imported wallets have context for past recipients.
+  useEffect(() => {
+    if (transactions.length > 0) {
+      seedAddressBookFromHistory(transactions)
+    }
+  }, [transactions])
 
   if (!wallet) return null
 
@@ -124,6 +133,28 @@ export function Wallet({ onNavigate }: Props) {
         </div>
       </div>
 
+      {/* API error banners — shown below the header so they're always visible */}
+      {(balError || txError) && (
+        <div
+          role="alert"
+          style={{
+            background: '#fef2f2',
+            border: '1px solid #f87171',
+            borderLeft: '4px solid #dc2626',
+            borderRadius: '0 0 8px 8px',
+            padding: '0.6rem 1rem',
+            fontSize: '0.82rem',
+            color: '#991b1b',
+          }}
+        >
+          {balError && <div>⚠️ Balance: {balError}</div>}
+          {txError && <div>⚠️ Transactions: {txError}</div>}
+          <div style={{ marginTop: '0.25rem', opacity: 0.8 }}>
+            This may be a network or API issue. Your funds are unaffected. Try refreshing.
+          </div>
+        </div>
+      )}
+
       {/* Transaction history */}
       <div style={{ padding: '1.25rem 1rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
@@ -150,7 +181,11 @@ export function Wallet({ onNavigate }: Props) {
 
         {filteredTx.length === 0 && !txLoading && (
           <p style={{ color: 'var(--color-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '2rem 0' }}>
-            {search ? 'No transactions match your search.' : 'No transactions yet.'}
+            {search
+              ? 'No transactions match your search.'
+              : txError
+              ? 'Could not load transactions. Check your connection and refresh.'
+              : 'No transactions yet.'}
           </p>
         )}
 
