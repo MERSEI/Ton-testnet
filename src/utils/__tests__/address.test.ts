@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   isValidTonAddress,
+  normalizeAddress,
   shortenAddress,
   splitAddressForHighlight,
   formatTon,
@@ -124,6 +125,28 @@ describe('formatTon', () => {
 
   it('trims trailing zeros in fraction', () => {
     expect(formatTon('1100000000')).toBe('1.1')
+  })
+})
+
+describe('normalizeAddress (P2 fix — address normalization)', () => {
+  it('returns original string when address is invalid (CRC mismatch)', () => {
+    // Our hand-crafted test addresses are not valid TON (wrong CRC),
+    // so normalizeAddress falls back to the trimmed original.
+    const fake = 'UQBvWWFP2pnpMNaHO6YeW7VKz-D_0uj9E3k9d2QT3k9dABCd'
+    expect(normalizeAddress(fake)).toBe(fake)
+  })
+
+  it('trims whitespace', () => {
+    const fake = '  UQBvWWFP2pnpMNaHO6YeW7VKz-D_0uj9E3k9d2QT3k9dABCd  '
+    expect(normalizeAddress(fake)).toBe(fake.trim())
+  })
+
+  it('returns original for empty string', () => {
+    expect(normalizeAddress('')).toBe('')
+  })
+
+  it('returns original for random text', () => {
+    expect(normalizeAddress('not-an-address')).toBe('not-an-address')
   })
 })
 

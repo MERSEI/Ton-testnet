@@ -7,23 +7,29 @@
  *  C) NewAddressWarning shown for first-time recipients
  */
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useWalletContext } from '../store/WalletContext'
 import { useBalance } from '../hooks/useBalance'
 import { useSend } from '../hooks/useSend'
 import { useClipboardGuard } from '../hooks/useClipboardGuard'
-import { isValidTonAddress, formatTon, tonToNano } from '../utils/address'
-import { isKnownAddress } from '../utils/addressBook'
+import { isValidTonAddress, formatTon, tonToNano, normalizeAddress } from '../utils/address'
+import { isKnownAddress, findSimilarKnownAddress } from '../utils/addressBook'
 import { AddressDisplay } from '../components/AddressDisplay'
 import { ClipboardWarning } from '../components/ClipboardWarning'
 import { NewAddressWarning } from '../components/NewAddressWarning'
+import { SimilarAddressWarning } from '../components/SimilarAddressWarning'
 import { Modal } from '../components/Modal'
 import { Spinner } from '../components/Spinner'
 
 export function Send() {
   const { wallet } = useWalletContext()
-  const { nanotons } = useBalance(wallet?.address ?? null)
+  const { nanotons, refresh: refreshBalance } = useBalance(wallet?.address ?? null)
   const { loading, txHash, error, send, reset } = useSend()
+
+  // Load balance on mount — the hook initialises with null and never auto-fetches.
+  useEffect(() => {
+    refreshBalance()
+  }, [refreshBalance])
   const { isPasted, onPaste, onManualEdit, reset: resetClipboard } = useClipboardGuard()
 
   const [toAddress, setToAddress] = useState('')
@@ -64,11 +70,13 @@ export function Send() {
 
   const handleConfirm = async () => {
     setConfirmOpen(false)
+    // Always send to the normalised address to prevent format-mismatch issues
+    const destination = normAddr || toAddress.trim()
     try {
       await send({
         walletAddress: wallet.address,
         keys: wallet.keys,
-        toAddress: toAddress.trim(),
+        toAddress: destination,
         amountTon: amount,
         comment: comment || undefined,
       })
@@ -124,7 +132,12 @@ export function Send() {
     )
   }
 
-  const isFirstTime = toAddress.trim() && isValidTonAddress(toAddress) && !isKnownAddress(toAddress.trim())
+  // Normalised address is used for all security checks so EQ/UQ/raw
+  // variants of the same account are treated identically.
+  const normAddr = isValidTonAddress(toAddress) ? normalizeAddress(toAddress) : ''
+  const isFirstTime = normAddr && !isKnownAddress(normAddr)
+  // SECURITY MECHANISM C (extension): detect prefix-swap attacks
+  const similarKnown = normAddr && isFirstTime ? findSimilarKnownAddress(normAddr) : null
 
   return (
     <div className="page" style={{ padding: '1.5rem', maxWidth: '420px', margin: '0 auto' }}>
@@ -176,8 +189,11 @@ export function Send() {
           {/* SECURITY MECHANISM B — shown immediately after paste */}
           <ClipboardWarning visible={isPasted} />
 
-          {/* SECURITY MECHANISM C — first-time address inline hint */}
-          {isFirstTime && !isPasted && (
+          {/* SECURITY MECHANISM C (extension) — similar-address attack warning */}
+          <SimilarAddressWarning similar={similarKnown ?? null} />
+
+          {/* SECURITY MECHANISM C — first-time address inline hint (only when no stronger warning) */}
+          {isFirstTime && !isPasted && !similarKnown && (
             <p style={{ fontSize: '0.8rem', color: '#b45309', marginTop: '0.4rem' }}>
               ⚠️ You've never sent to this address before.
             </p>
@@ -230,14 +246,16 @@ export function Send() {
 
       {/* Confirmation modal */}
       <Modal open={confirmOpen} title="Confirm Transaction" onClose={() => setConfirmOpen(false)}>
-        {/* SECURITY MECHANISM C — shown in confirmation modal */}
-        <NewAddressWarning visible={!!isFirstTime} />
+        {/* SECURITY MECHANISM C (extension) — highest-priority warning */}
+        <SimilarAddressWarning similar={similarKnown ?? null} />
+        {/* SECURITY MECHANISM C — first-send warning (shown when no similar-address warning) */}
+        {!similarKnown && <NewAddressWarning visible={!!isFirstTime} />}
 
         <div style={{ fontSize: '0.9rem', lineHeight: 1.8, marginBottom: '1.25rem' }}>
           <div>
             <span style={{ color: 'var(--color-muted)' }}>To: </span>
             {/* SECURITY MECHANISM A — full highlighted address in confirmation */}
-            <AddressDisplay address={toAddress.trim()} full />
+            <AddressDisplay address={normAddr || toAddress.trim()} full />
           </div>
           <div>
             <span style={{ color: 'var(--color-muted)' }}>Amount: </span>
