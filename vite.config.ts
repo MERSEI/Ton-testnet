@@ -81,9 +81,22 @@ export default defineConfig({
       output: {
         // The @ton/* + crypto stack dominates the bundle and changes far less
         // often than app code; splitting it keeps the app chunk cacheable.
-        manualChunks: {
-          ton: ['@ton/ton', '@ton/crypto'],
-          react: ['react', 'react-dom'],
+        //
+        // The 'polyfill' chunk is load-bearing, not a size optimisation. When
+        // src/polyfills.ts ends up inside the app chunk, its body runs *after*
+        // every chunk that chunk imports — including 'ton', which reads Buffer
+        // at module init. That is a blank page in production (dev is unaffected
+        // because Vite serves unbundled modules in source order).
+        //
+        // Giving the polyfill its own chunk makes it a sibling import that
+        // Rollup emits ahead of 'ton', mirroring the import order in main.tsx,
+        // so globalThis.Buffer exists before @ton/* touches it. Keep polyfills
+        // as the first import in main.tsx, and verify with `npm run build &&
+        // npm run preview` — never with `npm run dev`.
+        manualChunks(id) {
+          if (id.includes('src/polyfills') || id.includes('node_modules/buffer/')) return 'polyfill'
+          if (id.includes('@ton/')) return 'ton'
+          if (id.includes('node_modules/react')) return 'react'
         },
       },
     },
