@@ -1,7 +1,8 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { useWalletContext } from '../store/WalletContext'
-import { AddressDisplay } from '../components/AddressDisplay'
+import { AddressPlate } from '../components/AddressPlate'
+import { copyToClipboard } from '../utils/clipboard'
 
 export function Receive() {
   const { wallet } = useWalletContext()
@@ -10,54 +11,57 @@ export function Receive() {
   const tonLink = `ton://transfer/${wallet.address}`
 
   return (
-    <div className="page-content">
-      <h2 style={{ fontSize: '1.3rem', fontWeight: 700, padding: '0.25rem 0.25rem 0' }}>Receive TON</h2>
+    <div className="shell">
+      <header className="row rise rise-1">
+        <h2 className="title">Receive</h2>
+        <span className="chip">Testnet</span>
+      </header>
 
-      {/* QR */}
-      <div className="tg-section" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
-        <div style={{ background: '#fff', padding: '1rem', borderRadius: '12px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-          <QRCodeSVG value={tonLink} size={180} />
-        </div>
-        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-          Scan with any TON wallet app
-        </p>
-      </div>
-
-      {/* Address */}
-      <div>
-        <div className="label-text">Your address</div>
-        <div className="tg-section" style={{ padding: '1rem' }}>
-          <div style={{ fontFamily: 'monospace', fontSize: '0.82rem', wordBreak: 'break-all', lineHeight: 1.6, marginBottom: '0.75rem' }}>
-            <AddressDisplay address={wallet.address} full />
+      {/* QR sits on a bone plate: scanners need light ground, and the contrast
+          makes the code read as a physical label rather than a UI element. */}
+      <section className="panel rise rise-2">
+        <div className="panel__body stack" style={{ alignItems: 'center' }}>
+          <div className="qr-plate">
+            <QRCodeSVG value={tonLink} size={176} bgColor="#EDE9E1" fgColor="#09090A" level="M" />
           </div>
-          <CopyButton text={wallet.address} />
+          <span className="meta">Scan with any TON wallet app</span>
         </div>
-      </div>
+      </section>
 
-      {/* Warning */}
-      <div className="tg-section" style={{ padding: '0.75rem 1rem', borderLeft: '4px solid var(--orange)', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-        ⚠️ <strong style={{ color: 'var(--text)' }}>Testnet only.</strong> Only send testnet TON here. For free testnet coins use <code style={{ background: 'var(--surface-2)', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>@testgiver_ton_bot</code> in Telegram.
+      <section className="stack-s rise rise-3">
+        <span className="label">Your address</span>
+        <div className="panel">
+          <div className="panel__body stack">
+            <AddressPlate address={wallet.address} />
+            <CopyButton text={wallet.address} />
+          </div>
+        </div>
+      </section>
+
+      <div className="alert alert--warn rise rise-4">
+        <span className="alert__glyph" aria-hidden="true">◆</span>
+        <span>
+          <strong>Testnet only.</strong> Only send testnet TON here. For free testnet coins use{' '}
+          <code className="mark">@testgiver_ton_bot</code> in Telegram.
+        </span>
       </div>
     </div>
   )
 }
 
 function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = React.useState(false)
+  const [copied, setCopied] = useState(false)
 
   const copy = async () => {
-    try { await navigator.clipboard.writeText(text) } catch { /* ignore */ }
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    if (await copyToClipboard(text)) {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
   }
 
   return (
-    <button
-      onClick={copy}
-      className="btn btn-primary"
-      style={{ width: '100%' }}
-    >
-      {copied ? '✓ Copied!' : 'Copy address'}
+    <button onClick={copy} className="btn btn--primary btn--block">
+      {copied ? '✓ Copied' : 'Copy address'}
     </button>
   )
 }

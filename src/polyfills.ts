@@ -21,6 +21,7 @@ import { Buffer } from 'buffer'
 // Make Buffer a true browser global — equivalent to what Node provides.
 // The nullish-assignment guard avoids overwriting an already-existing Buffer
 // (e.g., in test environments that have their own polyfill via jsdom).
-if (typeof (globalThis as Record<string, unknown>)['Buffer'] === 'undefined') {
-  ;(globalThis as Record<string, unknown>)['Buffer'] = Buffer
+const g = globalThis as unknown as Record<string, unknown>
+if (typeof g.Buffer === 'undefined') {
+  g.Buffer = Buffer
 }

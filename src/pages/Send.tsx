@@ -1,49 +1,109 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useWalletContext } from '../store/WalletContext'
-import { useBalance } from '../hooks/useBalance'
+import { useAccount } from '../hooks/useAccount'
 import { useSend } from '../hooks/useSend'
 import { useClipboardGuard } from '../hooks/useClipboardGuard'
-import { isValidTonAddress, formatTon, tonToNano, normalizeAddress } from '../utils/address'
-import { isKnownAddress, findSimilarKnownAddress } from '../utils/addressBook'
-import { AddressDisplay } from '../components/AddressDisplay'
+import {
+  formatTon,
+  tonToNano,
+  normalizeAddress,
+  parseTonAddress,
+  isSameAddress,
+} from '../utils/address'
+import { getKnownAddress, findSimilarKnownAddress } from '../utils/addressBook'
+import { MAX_COMMENT_BYTES } from '../crypto/wallet'
+import { AddressPlate } from '../components/AddressPlate'
 import { ClipboardWarning } from '../components/ClipboardWarning'
 import { NewAddressWarning } from '../components/NewAddressWarning'
 import { SimilarAddressWarning } from '../components/SimilarAddressWarning'
 import { Modal } from '../components/Modal'
 import { Spinner } from '../components/Spinner'
 
+/**
+ * Reserved for network fees when computing the maximum sendable amount.
+ *
+ * A simple v4 transfer costs roughly 0.005 TON. Reserving 0.01 TON keeps "Max"
+ * from producing a transfer the network then rejects for insufficient funds.
+ * A production wallet would call estimateFee instead of using a constant.
+ */
+const FEE_RESERVE_NANO = BigInt(10_000_000)
+
 export function Send() {
   const { wallet } = useWalletContext()
-  const { nanotons, refresh: refreshBalance } = useBalance(wallet?.address ?? null)
+  const account = useAccount(wallet?.address ?? null)
+  const {
+    nanotons, deployed, loaded: balanceLoaded, loading: balanceLoading,
+    error: balanceError, refresh: refreshAccount,
+  } = account
   const { loading, txHash, error, send, reset } = useSend()
   const { isPasted, onPaste, onManualEdit, reset: resetClipboard } = useClipboardGuard()
 
-  useEffect(() => {
-    const t = setTimeout(refreshBalance, 2400)
-    return () => clearTimeout(t)
-  }, [refreshBalance])
+  const [toAddress, setToAddress]     = useState('')
+  const [amount, setAmount]           = useState('')
+  const [comment, setComment]         = useState('')
+  const [validationError, setValErr]  = useState('')
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [isTyping, setIsTyping]       = useState(false)
 
-  const [toAddress, setToAddress]       = useState('')
-  const [amount, setAmount]             = useState('')
-  const [comment, setComment]           = useState('')
-  const [validationError, setValErr]    = useState('')
-  const [confirmOpen, setConfirmOpen]   = useState(false)
-  const [isTyping, setIsTyping]         = useState(false)
+  useEffect(() => {
+    refreshAccount()
+  }, [refreshAccount])
+
+  const walletAddress = wallet?.address ?? ''
+
+  const parsed = useMemo(() => parseTonAddress(toAddress), [toAddress])
+  const normAddr = parsed?.canonical ?? ''
+
+  const isSelfSend = !!normAddr && isSameAddress(normAddr, walletAddress)
+
+  const knownEntry = normAddr && !isSelfSend ? getKnownAddress(normAddr) : null
+  /** Only a send from this device counts as full familiarity — see utils/addressBook. */
+  const isConfirmedRecipient = knownEntry?.source === 'sent'
+  const isSeededRecipient    = knownEntry?.source === 'history'
+  const isFirstTime          = !!normAddr && !isSelfSend && !knownEntry
+
+  const similarKnown = useMemo(
+    () => (normAddr && !isSelfSend && !isConfirmedRecipient ? findSimilarKnownAddress(normAddr) : null),
+    [normAddr, isSelfSend, isConfirmedRecipient],
+  )
+
+  const commentBytes = useMemo(() => new TextEncoder().encode(comment).length, [comment])
+
+  const balanceNano = nanotons !== null ? BigInt(nanotons) : null
+  const maxSendable =
+    balanceNano !== null && balanceNano > FEE_RESERVE_NANO ? balanceNano - FEE_RESERVE_NANO : BigInt(0)
+
+  const addressTouched = toAddress.trim().length > 0
+  const addressInvalid = addressTouched && !parsed
 
   if (!wallet) return null
 
-  const balanceNano = nanotons ? BigInt(nanotons) : BigInt(0)
-  const normAddr    = isValidTonAddress(toAddress) ? normalizeAddress(toAddress) : ''
-  const isFirstTime = normAddr && !isKnownAddress(normAddr)
-  const similarKnown = normAddr && isFirstTime ? findSimilarKnownAddress(normAddr) : null
-
   function validate(): string | null {
     if (!toAddress.trim()) return 'Recipient address is required.'
-    if (!isValidTonAddress(toAddress)) return 'Invalid TON address format.'
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) return 'Amount must be greater than 0.'
+    if (!parsed) return 'Invalid TON address — check the characters, the checksum does not match.'
+    if (isSelfSend) return 'This is your own address. Sending to yourself only burns fees.'
+    if (!amount.trim()) return 'Amount is required.'
+
+    let value: bigint
     try {
-      if (tonToNano(amount) > balanceNano) return 'Insufficient balance.'
-    } catch { return 'Invalid amount.' }
+      value = tonToNano(amount)
+    } catch {
+      return 'Amount must be a plain decimal number, e.g. 1.25.'
+    }
+    if (value <= BigInt(0)) return 'Amount must be greater than 0.'
+
+    // Never fall back to "zero balance" when the balance simply failed to load —
+    // that used to surface a network problem as "Insufficient balance".
+    if (!balanceLoaded || balanceNano === null) {
+      return 'Your balance could not be loaded yet. Refresh before sending.'
+    }
+    if (value > balanceNano) return 'Insufficient balance.'
+    if (value > balanceNano - FEE_RESERVE_NANO) {
+      return `Leave at least ${formatTon(FEE_RESERVE_NANO)} TON for network fees. Use Max to fill the largest safe amount.`
+    }
+    if (commentBytes > MAX_COMMENT_BYTES) {
+      return `Comment is too long (${commentBytes}/${MAX_COMMENT_BYTES} bytes).`
+    }
     return null
   }
 
@@ -56,41 +116,71 @@ export function Send() {
   }
 
   const handleConfirm = async () => {
+    if (loading) return
     setConfirmOpen(false)
     try {
       await send({
         walletAddress: wallet.address,
         keys: wallet.keys,
-        toAddress: normAddr || toAddress.trim(),
+        toAddress: normAddr,
         amountTon: amount,
-        comment: comment || undefined,
+        comment: comment.trim() || undefined,
       })
-    } catch { /* error already in useSend */ }
+      refreshAccount()
+    } catch { /* error already surfaced by useSend */ }
   }
+
+  const handleMax = () => setAmount(formatTon(maxSendable))
 
   const handleReset = () => {
     setToAddress(''); setAmount(''); setComment('')
     setValErr(''); resetClipboard(); reset()
+    refreshAccount()
   }
 
-  /* ── Success screen ──────────────────────────────────────────────── */
-  if (txHash) {
+  /* ── Success ─────────────────────────────────────────────────────── */
+  // txHash may legitimately be '' — the network accepted the message but the
+  // endpoint returned no hash. `!== null` is what marks a completed send.
+  if (txHash !== null) {
     return (
-      <div className="page-content" style={{ alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-        <div className="tg-section" style={{ padding: '2rem', textAlign: 'center', width: '100%' }}>
-          <div style={{ fontSize: '3rem', marginBottom: '0.75rem' }}>✅</div>
-          <h3 style={{ color: 'var(--green)', marginBottom: '0.5rem' }}>Transaction sent!</h3>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>Hash:</p>
-          <code style={{
-            fontSize: '0.7rem', wordBreak: 'break-all',
-            background: 'var(--surface-2)', padding: '0.6rem',
-            borderRadius: '8px', display: 'block', fontFamily: 'monospace',
-          }}>
-            {txHash}
-          </code>
-          <button className="btn btn-primary" onClick={handleReset} style={{ width: '100%', marginTop: '1.25rem' }}>
-            Send again
-          </button>
+      <div className="shell">
+        <div className="panel rise rise-1">
+          <div className="panel__head">
+            <span className="chip chip--live">
+              <span className="chip__dot" aria-hidden="true" />
+              Broadcast
+            </span>
+          </div>
+          <div className="panel__body stack" style={{ textAlign: 'center' }}>
+            <div className="glyph-badge" style={{ margin: '0 auto' }} aria-hidden="true">✓</div>
+            <h2 className="title">Transaction sent</h2>
+
+            {txHash ? (
+              <div style={{ textAlign: 'left' }}>
+                <div className="label" style={{ marginBottom: 'calc(var(--step) * 2)' }}>Hash</div>
+                <div className="panel panel--quiet" style={{ padding: 'calc(var(--step) * 3)' }}>
+                  <code style={{ fontSize: '0.72rem', wordBreak: 'break-all', color: 'var(--bone-dim)' }}>
+                    {txHash}
+                  </code>
+                </div>
+              </div>
+            ) : (
+              <p className="meta">
+                The network accepted the message. It will appear in your history within a few seconds.
+              </p>
+            )}
+
+            <div className="alert alert--info" style={{ textAlign: 'left' }}>
+              <span className="alert__glyph" aria-hidden="true">○</span>
+              <span>
+                Broadcast is not confirmation — check the Wallet tab to see it land in a block.
+              </span>
+            </div>
+
+            <button className="btn btn--primary btn--block btn--tall" onClick={handleReset}>
+              Send again
+            </button>
+          </div>
         </div>
       </div>
     )
@@ -98,31 +188,54 @@ export function Send() {
 
   /* ── Form ────────────────────────────────────────────────────────── */
   return (
-    <div className="page-content">
-      <h2 style={{ fontSize: '1.3rem', fontWeight: 700, padding: '0.25rem 0.25rem 0' }}>Send TON</h2>
+    <div className="shell">
+      <header className="row rise rise-1">
+        <h2 className="title">Send</h2>
+        <span className="chip">Testnet</span>
+      </header>
 
-      {/* Send error */}
       {error && (
-        <div className="tg-section" role="alert" style={{
-          padding: '0.75rem 1rem', borderLeft: '4px solid var(--red)',
-          fontSize: '0.85rem', color: 'var(--red)',
-        }}>
-          {error}
+        <div className="alert alert--danger rise rise-1" role="alert">
+          <span className="alert__glyph" aria-hidden="true">▲</span>
+          <span>{error}</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {balanceError && (
+        <div className="alert alert--warn rise rise-1" role="alert">
+          <span className="alert__glyph" aria-hidden="true">◆</span>
+          <span>
+            <strong>Balance unavailable:</strong> {balanceError}
+            <span style={{ display: 'block', marginTop: 'calc(var(--step) * 2)' }}>
+              <button className="btn btn--small" type="button" onClick={refreshAccount} disabled={balanceLoading}>
+                {balanceLoading ? <Spinner size={12} /> : 'Retry'}
+              </button>
+            </span>
+          </span>
+        </div>
+      )}
 
+      {deployed === false && (
+        <div className="alert alert--info rise rise-1">
+          <span className="alert__glyph" aria-hidden="true">○</span>
+          <span>
+            This wallet is not on-chain yet. Your first outgoing transfer also deploys the
+            contract, which costs a small extra fee.
+          </span>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} noValidate className="stack rise rise-2">
         {/* Recipient */}
-        <div>
-          <div className="label-text">Recipient</div>
-          <div className="tg-section" style={{ padding: '0.6rem 0.75rem' }}>
+        <div className="field">
+          <span className="label">Recipient</span>
+          <div className={`field__frame ${addressInvalid ? 'field__frame--alert' : ''}`}>
             <input
-              className="tg-input mono"
-              style={{ background: 'transparent', padding: '0.1rem 0' }}
+              className="input"
               type="text"
               value={toAddress}
-              placeholder="UQ… or EQ…"
+              placeholder="UQ…, EQ…, kQ… or 0Q…"
+              aria-label="Recipient address"
               onPaste={() => onPaste()}
               onKeyDown={() => { if (isPasted) setIsTyping(true) }}
               onChange={e => {
@@ -132,94 +245,164 @@ export function Send() {
               autoComplete="off"
               spellCheck={false}
             />
+            {parsed && !isSelfSend && (
+              <span className="chip chip--live" aria-hidden="true">✓ Valid</span>
+            )}
           </div>
-          {/* Security warnings */}
+
+          {/* A verification plate: grouped, corners marked. The point of the whole app. */}
+          {parsed && !isSelfSend && (
+            <div className="panel panel--quiet" style={{ padding: 'calc(var(--step) * 3)' }}>
+              <AddressPlate address={normAddr} size="sm" />
+            </div>
+          )}
+
           <ClipboardWarning visible={isPasted} />
-          <SimilarAddressWarning similar={similarKnown ?? null} />
+          <SimilarAddressWarning similar={similarKnown} />
+
+          {isSelfSend && (
+            <div className="hint hint--danger" role="alert">
+              <span aria-hidden="true">⛔</span> This is your own address.
+            </div>
+          )}
+
           {isFirstTime && !isPasted && !similarKnown && (
-            <div style={{ fontSize: '0.8rem', color: 'var(--orange)', marginTop: '0.4rem', paddingLeft: '0.25rem' }}>
-              ⚠️ You have never sent to this address before.
+            <div className="hint hint--warn">
+              <span aria-hidden="true">◆</span> You have never sent to this address before.
+            </div>
+          )}
+
+          {/* Provenance matters: a history-seeded match is weaker evidence than a
+              send this device performed, so it does not silence the warning. */}
+          {isSeededRecipient && !similarKnown && (
+            <div className="hint">
+              <span aria-hidden="true">○</span> Recognised from this wallet&rsquo;s on-chain
+              history, not from a send made on this device. Verify the address anyway.
+            </div>
+          )}
+
+          {isConfirmedRecipient && !similarKnown && (
+            <div className="hint hint--ok">
+              <span aria-hidden="true">✓</span> You have sent to this address from this device before.
             </div>
           )}
         </div>
 
         {/* Amount */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <div className="label-text">Amount (TON)</div>
-            {nanotons && (
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Balance: {formatTon(nanotons)} TON
-              </span>
+        <div className="field">
+          <div className="section-head">
+            <span className="label">Amount · TON</span>
+            {nanotons !== null && (
+              <span className="counter">Balance: {formatTon(nanotons)} TON</span>
             )}
           </div>
-          <div className="tg-section" style={{ padding: '0.6rem 0.75rem' }}>
+          <div className="field__frame">
+            {/* Deliberately type="text" rather than type="number": a number input
+                renders the value in the browser's locale (so "0.98" shows as "0,98"
+                where commas are decimal separators, which our strict parser
+                rejects) and mutates the amount on an accidental scroll. inputMode
+                still brings up the numeric keypad on mobile. */}
             <input
-              className="tg-input mono"
-              style={{ background: 'transparent', padding: '0.1rem 0', fontSize: '1.1rem' }}
-              type="number"
+              className="input input--lg"
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
               value={amount}
-              onChange={e => setAmount(e.target.value)}
+              onChange={e => setAmount(e.target.value.replace(',', '.'))}
               placeholder="0.0"
-              min="0"
-              step="any"
+              aria-label="Amount in TON"
             />
+            <button
+              type="button"
+              className="btn btn--small"
+              onClick={handleMax}
+              disabled={maxSendable <= BigInt(0)}
+              title={`Send everything except a ${formatTon(FEE_RESERVE_NANO)} TON fee reserve`}
+            >
+              Max
+            </button>
           </div>
         </div>
 
         {/* Comment */}
-        <div>
-          <div className="label-text">Comment <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional)</span></div>
-          <div className="tg-section" style={{ padding: '0.6rem 0.75rem' }}>
+        <div className="field">
+          <div className="section-head">
+            <span className="label">Comment · optional</span>
+            <span className={`counter ${commentBytes > MAX_COMMENT_BYTES ? 'counter--over' : ''}`}>
+              {commentBytes}/{MAX_COMMENT_BYTES}
+            </span>
+          </div>
+          <div className="field__frame">
             <input
-              className="tg-input"
-              style={{ background: 'transparent', padding: '0.1rem 0' }}
+              className="input"
               type="text"
               value={comment}
               onChange={e => setComment(e.target.value)}
               placeholder="Payment for…"
+              aria-label="Comment"
             />
           </div>
         </div>
 
-        {validationError && <p className="error-text">{validationError}</p>}
+        {validationError && <p className="error-text" role="alert">{validationError}</p>}
 
-        <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: '100%', padding: '0.85rem' }}>
-          {loading ? <Spinner size={18} /> : 'Review & Send'}
+        <button className="btn btn--primary btn--block btn--tall" type="submit" disabled={loading}>
+          {loading ? <Spinner size={16} /> : 'Review & Send'}
         </button>
       </form>
 
-      {/* ── Confirmation modal ──────────────────────────────────────── */}
+      {/* ── Confirmation ────────────────────────────────────────────── */}
       <Modal open={confirmOpen} title="Confirm Transaction" onClose={() => setConfirmOpen(false)}>
-        <SimilarAddressWarning similar={similarKnown ?? null} />
-        {!similarKnown && <NewAddressWarning visible={!!isFirstTime} />}
-
-        <div className="tg-section" style={{ marginBottom: '1rem' }}>
-          <div className="tg-cell">
-            <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', minWidth: 60 }}>To</span>
-            <span style={{ fontFamily: 'monospace', fontSize: '0.82rem', wordBreak: 'break-all' }}>
-              {/* SECURITY A — highlighted address */}
-              <AddressDisplay address={normAddr || toAddress.trim()} full />
+        <SimilarAddressWarning similar={similarKnown} />
+        {!similarKnown && <NewAddressWarning visible={isFirstTime} />}
+        {/* A history-seeded match is weaker evidence than a send from this device,
+            so the confirmation step must repeat that caveat rather than look clean. */}
+        {!similarKnown && isSeededRecipient && (
+          <div className="alert alert--info" style={{ marginBottom: '0.75rem' }}>
+            <span className="alert__glyph" aria-hidden="true">○</span>
+            <span>
+              Recognised from on-chain history only — you have not sent to this address from
+              this device.
             </span>
           </div>
-          <div className="tg-cell">
-            <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', minWidth: 60 }}>Amount</span>
-            <span style={{ fontWeight: 700, fontSize: '1.1rem' }}>{amount} TON</span>
+        )}
+
+        <div className="stack-s" style={{ marginBottom: 'calc(var(--step) * 5)' }}>
+          <span className="label">Sending to</span>
+          <div className="panel panel--quiet" style={{ padding: 'calc(var(--step) * 4)' }}>
+            <AddressPlate address={normAddr || normalizeAddress(toAddress)} />
           </div>
-          {comment && (
-            <div className="tg-cell">
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', minWidth: 60 }}>Comment</span>
-              <span style={{ fontSize: '0.9rem' }}>{comment}</span>
+        </div>
+
+        <div>
+          <div className="def">
+            <span className="def__key">Amount</span>
+            <span className="def__val num" style={{ fontSize: '1.05rem', fontWeight: 600 }}>
+              {amount} TON
+            </span>
+          </div>
+          <div className="def">
+            <span className="def__key">Bounce</span>
+            <span className="def__val">
+              {parsed?.isBounceable
+                ? 'On — funds return if the account does not exist'
+                : 'Off — standard for wallet addresses'}
+            </span>
+          </div>
+          {comment.trim() && (
+            <div className="def">
+              <span className="def__key">Comment</span>
+              <span className="def__val">{comment}</span>
             </div>
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button className="btn btn-secondary" onClick={() => setConfirmOpen(false)} style={{ flex: 1 }}>
+        <div className="row" style={{ gap: 'calc(var(--step) * 3)', marginTop: 'calc(var(--step) * 5)' }}>
+          <button className="btn btn--block" onClick={() => setConfirmOpen(false)}>
             Cancel
           </button>
-          <button className="btn btn-danger" onClick={handleConfirm} style={{ flex: 1 }}>
-            Confirm Send
+          <button className="btn btn--danger btn--block" onClick={handleConfirm} disabled={loading}>
+            {loading ? <Spinner size={14} /> : 'Confirm Send'}
           </button>
         </div>
       </Modal>

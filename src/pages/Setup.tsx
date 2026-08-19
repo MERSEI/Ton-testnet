@@ -1,7 +1,13 @@
 import React, { useState, useRef } from 'react'
-import { generateWallet, deriveWallet, type WalletInfo } from '../crypto/wallet'
+import {
+  generateWallet,
+  deriveWallet,
+  normalizeMnemonicInput,
+  type WalletInfo,
+} from '../crypto/wallet'
 import { useWalletContext } from '../store/WalletContext'
 import { Spinner } from '../components/Spinner'
+import { copyToClipboard } from '../utils/clipboard'
 
 type View = 'choose' | 'create' | 'import'
 
@@ -13,6 +19,8 @@ export function Setup() {
   const [loading, setLoading]         = useState(false)
   const [error, setError]             = useState('')
   const [confirmed, setConfirmed]     = useState(false)
+  const [revealed, setRevealed]       = useState(false)
+  const [copied, setCopied]           = useState(false)
   const pendingWallet                 = useRef<WalletInfo | null>(null)
 
   const handleCreate = async () => {
@@ -21,6 +29,7 @@ export function Setup() {
       const wallet = await generateWallet()
       pendingWallet.current = wallet
       setMnemonic(wallet.mnemonic)
+      setRevealed(false)
       setView('create')
     } catch (e) { setError((e as Error).message) }
     finally { setLoading(false) }
@@ -33,133 +42,184 @@ export function Setup() {
     }
   }
 
+  /**
+   * Import an existing phrase.
+   *
+   * The checksum check lives in deriveWallet: without it, one mistyped word
+   * derived a perfectly valid but *different* wallet with a zero balance, and the
+   * user had no way to tell a typo from lost funds.
+   */
   const handleImport = async () => {
     setError('')
-    const words = importInput.trim().split(/\s+/)
-    if (words.length !== 24) { setError('Please enter exactly 24 words.'); return }
+    const words = normalizeMnemonicInput(importInput)
+    if (words.length !== 24) {
+      setError(`Expected 24 words, found ${words.length}.`)
+      return
+    }
     setLoading(true)
     try {
       setWallet(await deriveWallet(words))
-    } catch (e) { setError(`Invalid phrase: ${(e as Error).message}`) }
+    } catch (e) { setError((e as Error).message) }
     finally { setLoading(false) }
   }
 
-  /* ── Choose view ──────────────────────────────────────────────────── */
+  const handleCopyPhrase = async () => {
+    if (await copyToClipboard(mnemonic.join(' '))) {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  /* ── Choose ───────────────────────────────────────────────────────── */
   if (view === 'choose') return (
-    <div style={centeredPage}>
-      <div style={card}>
-        {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-          <div style={{
-            width: 72, height: 72, borderRadius: '50%',
-            background: 'linear-gradient(145deg, #2AABEE, #1a6ea8)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            margin: '0 auto 0.9rem', fontSize: '2rem', boxShadow: '0 4px 16px rgba(42,171,238,0.35)',
-          }}>💎</div>
-          <h1 style={{ fontSize: '1.35rem', fontWeight: 700, marginBottom: '0.25rem' }}>TON Testnet Wallet</h1>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Self-custodial · No backend · Testnet</p>
+    <div className="center-page">
+      <div style={{ width: '100%', maxWidth: 380 }} className="stack">
+        <div className="stack-s rise rise-1" style={{ marginBottom: 'calc(var(--step) * 4)' }}>
+          <div className="glyph-badge" aria-hidden="true">◈</div>
+          <h1 className="display" style={{ fontSize: '2.6rem', marginTop: 'calc(var(--step) * 4)' }}>
+            TON Wallet
+          </h1>
+          <p className="meta">
+            Self-custodial. No backend. Keys never leave this browser.
+          </p>
+          <span className="chip chip--live" style={{ alignSelf: 'flex-start', marginTop: 'calc(var(--step) * 2)' }}>
+            <span className="chip__dot" aria-hidden="true" />
+            Testnet
+          </span>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-          <button className="btn btn-primary" onClick={handleCreate} disabled={loading}
-            style={{ width: '100%', padding: '0.85rem' }}>
+        <div className="stack-s rise rise-2">
+          <button className="btn btn--primary btn--block btn--tall" onClick={handleCreate} disabled={loading}>
             {loading ? <Spinner size={16} /> : '+ Create new wallet'}
           </button>
-          <button className="btn btn-secondary" onClick={() => setView('import')}
-            style={{ width: '100%', padding: '0.85rem' }}>
+          <button className="btn btn--block btn--tall" onClick={() => setView('import')}>
             Import existing wallet
           </button>
         </div>
-        {error && <p className="error-text" style={{ marginTop: '0.75rem', textAlign: 'center' }}>{error}</p>}
+
+        {error && <p className="error-text" role="alert">{error}</p>}
       </div>
     </div>
   )
 
-  /* ── Create view ──────────────────────────────────────────────────── */
+  /* ── Create ───────────────────────────────────────────────────────── */
   if (view === 'create') return (
-    <div style={{ ...centeredPage, alignItems: 'flex-start', padding: '1.5rem 1rem' }}>
-      <div style={{ ...card, maxWidth: 500, margin: '0 auto' }}>
-        <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>Save your Secret Phrase</h2>
+    <div className="center-page" style={{ alignItems: 'flex-start', paddingTop: 'calc(var(--step) * 10)' }}>
+      <div style={{ width: '100%', maxWidth: 460 }} className="stack">
+        <header className="stack-s rise rise-1">
+          <span className="label">Step 1 of 1</span>
+          <h2 className="title">Save your Secret Phrase</h2>
+        </header>
 
-        <div className="tg-section" style={{ padding: '0.75rem', marginBottom: '1rem', borderLeft: '4px solid var(--red)', borderRadius: '8px' }}>
-          <p style={{ fontSize: '0.82rem', color: 'var(--red)', fontWeight: 600 }}>⚠️ Write these 24 words in order and store them safely.</p>
-          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Anyone with this phrase has full access to your funds. Never share it online.</p>
+        <div className="alert alert--danger rise rise-1">
+          <span className="alert__glyph" aria-hidden="true">▲</span>
+          <span>
+            <strong>Write these 24 words down, in order.</strong> Anyone holding this phrase
+            owns your funds. It is never sent anywhere and never stored — reload this page and
+            it is gone for good.
+          </span>
         </div>
 
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: '0.4rem', marginBottom: '1.25rem',
-        }}>
-          {mnemonic.map((word, i) => (
-            <div key={i} style={{
-              background: 'var(--surface-2)', borderRadius: '8px',
-              padding: '0.4rem 0.6rem', fontSize: '0.82rem',
-              display: 'flex', gap: '0.35rem', alignItems: 'baseline',
-            }}>
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem', minWidth: 16 }}>{i + 1}.</span>
-              <span style={{ fontWeight: 600 }}>{word}</span>
+        {/* Blurred until explicitly revealed: the phrase should not be sitting in
+            plain sight on a screen that may be shared or recorded. */}
+        <div style={{ position: 'relative' }} className="rise rise-2">
+          <div className={`seed ${revealed ? '' : 'seed--hidden'}`}>
+            {mnemonic.map((word, i) => (
+              <div className="seed__cell" key={i}>
+                <span className="seed__ord">{i + 1}</span>
+                <span className="seed__word">{word}</span>
+              </div>
+            ))}
+          </div>
+          {!revealed && (
+            <div className="seed-veil">
+              <button className="btn btn--primary" onClick={() => setRevealed(true)}>
+                Tap to reveal
+              </button>
             </div>
-          ))}
+          )}
         </div>
 
-        <label style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start', marginBottom: '1rem', cursor: 'pointer' }}>
-          <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)}
-            style={{ marginTop: '0.2rem', width: 16, height: 16, accentColor: 'var(--tg-blue)', flexShrink: 0 }} />
-          <span style={{ fontSize: '0.85rem' }}>I've written down my secret phrase and stored it safely.</span>
-        </label>
+        <div className="stack-s rise rise-3">
+          <button className="btn btn--block" onClick={handleCopyPhrase} disabled={!revealed}>
+            {copied ? '✓ Copied to clipboard' : 'Copy phrase'}
+          </button>
 
-        <button className="btn btn-primary" onClick={handleConfirmCreate} disabled={!confirmed}
-          style={{ width: '100%', padding: '0.85rem' }}>
-          Open wallet
-        </button>
+          <label
+            style={{
+              display: 'flex', gap: 'calc(var(--step) * 3)', alignItems: 'flex-start',
+              cursor: 'pointer', padding: 'calc(var(--step) * 3) 0', fontSize: '0.8rem',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={e => setConfirmed(e.target.checked)}
+              style={{ marginTop: '0.2rem', width: 15, height: 15, accentColor: 'var(--acid)', flexShrink: 0 }}
+            />
+            <span>I&rsquo;ve written down my secret phrase and stored it safely.</span>
+          </label>
+
+          <button
+            className="btn btn--primary btn--block btn--tall"
+            onClick={handleConfirmCreate}
+            disabled={!confirmed}
+          >
+            Open wallet
+          </button>
+        </div>
       </div>
     </div>
   )
 
-  /* ── Import view ──────────────────────────────────────────────────── */
+  /* ── Import ───────────────────────────────────────────────────────── */
+  const wordCount = normalizeMnemonicInput(importInput).length
+
   return (
-    <div style={centeredPage}>
-      <div style={card}>
-        <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '1rem' }}>Import Wallet</h2>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-          Enter your 24 seed words separated by spaces.
-        </p>
+    <div className="center-page">
+      <div style={{ width: '100%', maxWidth: 420 }} className="stack">
+        <header className="stack-s rise rise-1">
+          <span className="label">Restore</span>
+          <h2 className="title">Import Wallet</h2>
+          <p className="meta">
+            Enter your 24 seed words separated by spaces. Case and numbering are ignored.
+          </p>
+        </header>
 
-        <textarea
-          value={importInput}
-          onChange={e => setImportInput(e.target.value)}
-          placeholder="word1 word2 word3 … word24"
-          rows={5}
-          style={{
-            width: '100%', padding: '0.75rem', borderRadius: '8px',
-            border: '1px solid var(--divider)', background: 'var(--surface-2)',
-            fontFamily: 'monospace', fontSize: '0.88rem', resize: 'vertical',
-            color: 'var(--text)', outline: 'none',
-          }}
-        />
-        {error && <p className="error-text">{error}</p>}
+        <div className="field rise rise-2">
+          <div className="field__frame" style={{ alignItems: 'stretch' }}>
+            <textarea
+              className="input input--area"
+              value={importInput}
+              onChange={e => setImportInput(e.target.value)}
+              placeholder="word1 word2 word3 … word24"
+              rows={5}
+              aria-label="Seed phrase"
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </div>
+          <div className={`counter ${wordCount === 24 ? 'counter--ready' : ''}`}>
+            {wordCount} / 24 words
+          </div>
+        </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-          <button className="btn btn-secondary" onClick={() => { setView('choose'); setError('') }} style={{ flex: 1 }}>
+        {error && <p className="error-text" role="alert">{error}</p>}
+
+        <div className="row rise rise-3" style={{ gap: 'calc(var(--step) * 3)' }}>
+          <button className="btn" onClick={() => { setView('choose'); setError('') }} style={{ flex: 1 }}>
             Back
           </button>
-          <button className="btn btn-primary" onClick={handleImport} disabled={loading} style={{ flex: 2, padding: '0.85rem' }}>
+          <button
+            className="btn btn--primary btn--tall"
+            onClick={handleImport}
+            disabled={loading}
+            style={{ flex: 2 }}
+          >
             {loading ? <Spinner size={16} /> : 'Import wallet'}
           </button>
         </div>
       </div>
     </div>
   )
-}
-
-const centeredPage: React.CSSProperties = {
-  minHeight: '100svh', display: 'flex',
-  alignItems: 'center', justifyContent: 'center',
-  padding: '1.5rem 1rem', background: 'var(--bg)',
-}
-
-const card: React.CSSProperties = {
-  background: 'var(--surface)', borderRadius: '16px',
-  padding: '2rem', width: '100%', maxWidth: '380px',
-  boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
 }
